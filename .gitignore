@@ -1,0 +1,15 @@
+# Python caches
+__pycache__/
+*.pyc
+
+*.pckl
+*.csv
+*.pth
+*.model
+*.pkl
+
+.conda/
+venv/
+
+# Marimo temporary sessions
+__marimo__/
