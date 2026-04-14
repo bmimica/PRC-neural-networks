@@ -12,7 +12,7 @@ import subprocess
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def load_data(data_test_size = 0.2, data_eval_size = 0.1):
+def load_data(rand_seed, data_test_size = 0.2, data_eval_size = 0.1):
     y, data_df, pathway_gene, pathway, cancer_name = pl.load(open('pathway_data.pckl', 'rb'))
     gene_list = data_df.columns.tolist()
     data_df['cancer_type'], uniques = pd.factorize(y)
@@ -22,7 +22,7 @@ def load_data(data_test_size = 0.2, data_eval_size = 0.1):
         data_df, 
         test_size = data_test_size, 
         stratify = data_df['cancer_type'], 
-        random_state = 42
+        random_state = rand_seed
     )
 
     train_df, val_df = train_test_split(
@@ -63,19 +63,24 @@ def train(model, batch_size = 16, lr=0.001, epochs=50, label="exp_1"):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, required = True)
-    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--model_path", type=str, required = True) # reads the model from a saved .pth file
+    parser.add_argument("--lr", type=float, default=0.001) # learning rate
+    parser.add_argument("--rand_seed", default=52, type=int, help="random seed used to split train test and val ",)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--run_name", type=str, required = True)
+    parser.add_argument("--run_name", type=str, required = True) # label of a certain training process
     args = parser.parse_args()
 
-    X_train, Y_train, X_val, Y_val, X_test, Y_test = load_data()
+    X_train, Y_train, X_val, Y_val, X_test, Y_test = load_data(args.rand_seed)
     model = torch.load(args.model_path).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
+    train_loss_list = [] # tracks error for each epoch
+    val_loss_list = []  
+    accuracy_history = []
+    mcc_history = []
     for epoch in range(args.epochs):
-        model.train()
+        model.train() # sets "training mode"
         train_loss = 0
         # shuffle data on each epoch to avoid bias
         permutation = torch.randperm(X_train.shape[0])
@@ -98,7 +103,7 @@ def main():
             train_loss += loss.item()
 
         """
-        after finishing every batch, evaluates model performance on test data
+        after finishing every batch do validation process: evaluates model performance on val data 
         """
         model.eval()
         val_loss = 0
