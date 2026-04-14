@@ -9,8 +9,6 @@ device = torch.device("cuda" if use_cuda else "cpu")
 from torch.utils.checkpoint import checkpoint as cp
 save_memory = False
 
-    
-
 
 class Sequential(nn.Module):
     def __init__(self, layers):
