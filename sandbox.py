@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.21.1"
+__generated_with = "0.23.1"
 app = marimo.App(width="full")
 
 with app.setup:
@@ -9,9 +9,9 @@ with app.setup:
     import torch
     import torch.nn as nn
 
-    from layers import multi_attention, AttentionBlock
-    from architecture import Sequential
-    from train import load_data
+    from src.layers import multi_attention, AttentionBlock
+    from src.architecture import Sequential
+    from src.train import load_data
 
     import pandas as pd
     import pickle as pl
@@ -32,6 +32,12 @@ def _():
 @app.cell
 def _():
     X_train, Y_train, X_val, Y_val, X_test, Y_test = load_data()
+    return (X_train,)
+
+
+@app.cell
+def _(X_train):
+    X_train
     return
 
 

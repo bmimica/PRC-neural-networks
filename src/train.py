@@ -2,10 +2,14 @@ import argparse
 
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 import pickle as pl
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn import metrics
+
+import matplotlib.pyplot as plt
 
 import subprocess
 
@@ -77,8 +81,11 @@ def main():
 
     train_loss_list = [] # tracks error for each epoch
     val_loss_list = []  
-    accuracy_history = []
-    mcc_history = []
+    acc_list = []
+    auc_list = []
+    mcc_list = []
+    f1_list = []
+    confusion_matrix_list = []
     for epoch in range(args.epochs):
         model.train() # sets "training mode"
         train_loss = 0
@@ -96,37 +103,99 @@ def main():
             # 
             optimizer.zero_grad()
             y_pred = model(batch_x)
-            loss = F.nll_loss(y_pred, batch_y)
+            loss = F.nll_loss(y_pred, batch_y, reduction = 'sum') 
 
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
 
+        train_loss /= len(X_train)
+        train_loss_list.append(train_loss)
+
         """
-        after finishing every batch do validation process: evaluates model performance on val data 
+        after finishing every batch do validation process: evaluates model performance on validation data 
         """
         model.eval()
         val_loss = 0
         correct = 0
         with torch.no_grad():
+            y_val=[] # to save y values temporarily
+            out_val = [] # to save predicted y values and compare
+            prob_out_val = [] # to see the actual "probability" of a certain label result
+
             for i in range(0, X_val.shape[0], batch_size):
                 batch_x = X_val[i : i + batch_size].to(device)
                 batch_y = Y_val[i : i + batch_size].to(device)
 
-                pred = model(batch_x)
-                val_loss += F.nll_loss(pred, batch_y, reduction='sum').item()
+                pred = model(batch_x.float()) # predictions of the input x
+                val_loss += F.nll_loss(pred, batch_y, reduction='sum').item() # calculates the loss
                 
                 pred_choice = pred.argmax(dim=1, keepdim=True)
                 correct += pred_choice.eq(batch_y.view_as(pred_choice)).sum().item()
 
-        val_loss /= len(X_val)
-        accuracy = 100. * correct / len(X_val)
+                y_val.append(batch_y.cpu().numpy())
+                out_val.append(pred_choice.cpu().numpy())
+                prob_out_val.append(torch.exp(pred).cpu().numpy())
+
+
+            val_loss /= len(X_val)
+            val_loss_list.append(val_loss)
+            accuracy = 100. * correct / len(X_val)
+
+            # results that i want to export:  confusion matrix, 
+            y_val = np.concatenate(y_val).ravel()
+            out_val = np.concatenate(out_val).ravel()
+            prob_out_val = np.vstack(prob_out_val)
+
+            acc_val = metrics.accuracy_score(y_val, out_val)
+            f1 = metrics.f1_score(y_val, out_val, average='micro')
+            confusion_mat = metrics.confusion_matrix(y_val, out_val)
+            mcc = metrics.matthews_corrcoef(y_val, out_val)
+
+            encoder_ = LabelBinarizer()
+            y_val = encoder_.fit_transform(y_val)
+            roc_auc = metrics.roc_auc_score(y_val, prob_out_val, multi_class='ovr', average='micro')
+
+        """
+        save data of interest
+        """
+        confusion_matrix_list.append(confusion_mat)
+        mcc_list.append(mcc)
+        acc_list.append(acc_val) # accuracy score
+        auc_list.append(roc_auc) #
+        f1_list.append(f1)
 
         print(f"Run: {args.run_name} | Epoch {epoch}: Val Loss: {val_loss:.4f}, Acc: {accuracy:.2f}%")
     
     output_path = f"{args.run_name}_final.pth"
     torch.save(model.state_dict(), output_path)
     print(f"Final model weights saved to {output_path}")
+
+    run_history = {
+        "train_loss": train_loss_list, # train loss vs n epochs
+        "val_loss": val_loss_list,  # val loss vs n epochs
+        "accuracy": acc_list, 
+        "f1": f1_list,
+        "mcc": mcc_list,
+        "auc": auc_list,
+        "confusion_matrix": confusion_matrix_list
+    }
+
+    # Using args.run_name ensures you don't overwrite previous tests
+    res_file = f"res_{args.run_name}.pkl"
+    with open(res_file, 'wb') as f:
+        pl.dump(run_history, f)
+
+    # 3. Quick PNG for a "Sanity Check"
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_loss_list, label='Train')
+    plt.plot(val_loss_list, label='Val')
+    plt.title(f'Loss: {args.run_name}')
+    plt.legend()
+    plt.savefig(f"quick_check_{args.run_name}.png")
+    plt.close()
+    
+    print(f"Done! Results saved to {res_file}. Check quick_check_{args.run_name}.png to see if it learned.")
 
 if __name__ == "__main__":
     main()
