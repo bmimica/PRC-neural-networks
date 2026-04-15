@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 
+# extensions
 *.pckl
 *.ipynb
 *.csv
@@ -9,10 +10,13 @@ __pycache__/
 *.model
 *.pkl
 
-sandbox.ipynb
+# specific files to ignore
 
+# specific folders to ignore
 .conda/
-venv/
+.venv/
+models/
+results/
 
 # Marimo temporary sessions
 __marimo__/
