@@ -6,18 +6,27 @@ import numpy as np
 
 import pickle as pl
 import pandas as pd
+
 from sklearn.model_selection import train_test_split
 from sklearn import metrics
+from sklearn.preprocessing import LabelBinarizer
 
 import matplotlib.pyplot as plt
 
 import subprocess
+import os
+import sys
 
+if 'marimo' in sys.modules or 'ipykernel' in sys.modules:
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def load_data(rand_seed, data_test_size = 0.2, data_eval_size = 0.1):
-    y, data_df, pathway_gene, pathway, cancer_name = pl.load(open('pathway_data.pckl', 'rb'))
+    with open('pathway_data.pckl', 'rb') as f:
+        y, data_df, pathway_gene, pathway, cancer_name = pl.load(f)
     gene_list = data_df.columns.tolist()
     data_df['cancer_type'], uniques = pd.factorize(y)
 
@@ -75,8 +84,12 @@ def main():
     parser.add_argument("--run_name", type=str, required = True) # label of a certain training process
     args = parser.parse_args()
 
+    results_dir = os.path.join(os.getcwd(), "results")
+    if not os.path.exists(results_dir):
+          os.makedirs(results_dir)
+
     X_train, Y_train, X_val, Y_val, X_test, Y_test = load_data(args.rand_seed)
-    model = torch.load(args.model_path).to(device)
+    model = torch.load(args.model_path, weights_only = False).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     train_loss_list = [] # tracks error for each epoch
@@ -86,7 +99,10 @@ def main():
     mcc_list = []
     f1_list = []
     confusion_matrix_list = []
-    for epoch in range(args.epochs):
+
+    print("--- TRAINING ---")
+    epoch_pbar = tqdm(range(args.epochs), desc="Epochs", position = 0)
+    for epoch in epoch_pbar:
         model.train() # sets "training mode"
         train_loss = 0
         # shuffle data on each epoch to avoid bias
@@ -96,7 +112,12 @@ def main():
         starts model train by batch
         """
         batch_size = args.batch_size
-        for batch_idx, i in enumerate(range(0, X_train.shape[0], batch_size)):
+
+        batch_pbar = tqdm(enumerate(range(0, X_train.shape[0], batch_size)), 
+                        total=X_train.shape[0]//batch_size, 
+                        desc=f"Epoch {epoch+1}", 
+                        position = 1)
+        for batch_idx, i in batch_pbar:
             indices = permutation[i: i+batch_size]
             batch_x, batch_y = X_train[indices].to(device), Y_train[indices].to(device)
 
@@ -182,7 +203,8 @@ def main():
     }
 
     # Using args.run_name ensures you don't overwrite previous tests
-    res_file = f"res_{args.run_name}.pkl"
+    res_file = os.path.join(results_dir, f"res_{args.run_name}.pkl")
+    fig_file = os.path.join(results_dir, f"fig_{args.run_name}.png")
     with open(res_file, 'wb') as f:
         pl.dump(run_history, f)
 
@@ -192,7 +214,7 @@ def main():
     plt.plot(val_loss_list, label='Val')
     plt.title(f'Loss: {args.run_name}')
     plt.legend()
-    plt.savefig(f"quick_check_{args.run_name}.png")
+    plt.savefig(fig_file)
     plt.close()
     
     print(f"Done! Results saved to {res_file}. Check quick_check_{args.run_name}.png to see if it learned.")
