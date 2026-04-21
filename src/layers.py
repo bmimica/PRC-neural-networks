@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+import torch.nn.functional as F
+
 # chooses automatically if do gpu or cpu calculations
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -9,30 +11,31 @@ device = torch.device("cuda" if use_cuda else "cpu")
 from torch.utils.checkpoint import checkpoint as cp
 save_memory = False
 
+# n_gene = fan_in; n_feature = fan_out
 class multi_attention(nn.Module):
     def __init__(self, batch_size, n_head, n_gene, n_feature, mode):
         # initializes parent class -> torch.nn.Module
         super(multi_attention, self).__init__()
         
-        self.n_head = n_head
-        self.n_gene = n_gene
-        self.batch_size = batch_size
-        self.n_feature = n_feature
+        self.n_head = n_head # trains not only one, but a couple of "heads"
+        self.n_gene = n_gene # this is the input size 
+        self.batch_size = batch_size # batch, as in how many inputs you train at one training step
+        self.n_feature = n_feature # as in number of outputs.
         self.mode = mode
 
         self.WQ = nn.Parameter(torch.Tensor(self.n_head, n_feature, 1), requires_grad=True)
-        self.WK = nn.Parameter(torch.Tensor(self.n_head,n_feature,1),requires_grad=True)
-        self.WV = nn.Parameter(torch.Tensor(self.n_head,n_feature,1),requires_grad=True)
+        self.WK = nn.Parameter(torch.Tensor(self.n_head,n_feature,1), requires_grad=True)
+        self.WV = nn.Parameter(torch.Tensor(self.n_head,n_feature,1), requires_grad=True)
 
         # xavier_normal_ helps for stability among layers: makes sure that data behavior doesn't explode. It "chooses" initial random numbers
-        nn.init.xavier_normal_(self.WQ,gain=1)
-        nn.init.xavier_normal_(self.WK,gain=1)
+        nn.init.xavier_normal_(self.WQ, gain=1)
+        nn.init.xavier_normal_(self.WK, gain=1)
         nn.init.xavier_normal_(self.WV)
 
         """
         ask Davi about this W0 parameter
         """
-        self.W_0=nn.Parameter(torch.Tensor(self.n_head*[0.001]),requires_grad=True)
+        self.W_0=nn.Parameter(torch.Tensor(self.n_head*[0.001]), requires_grad=True)
 
     """
     ask about this to Davi: why not use dot product as in the paper? is eq 2
@@ -62,6 +65,7 @@ class multi_attention(nn.Module):
 
         # dim = (batch_size, n_head, n_gene, 1)
         Q = WQ * x 
+        Q = torch.einsum('ijk,ij', WQ, x)
         K = WK * x
         V = WV * x
 
@@ -134,3 +138,46 @@ class AttentionBlock(nn.Module):
     def forward(self, x):
 
         return x + self.norm(self.dropout(self.attn(x))) # output dim = x dim
+    
+
+class echo_state(nn.Module):
+    def __init__(self, batch_size, n_head, fan_in, fan_out, R_size, sparsity = 0.95, spectral_radius = 0.9, leak_rate = 0.3):
+        super().__init__()
+        self.batch_size = batch_size
+        self.n_head = n_head
+        self.fan_in = fan_in
+        self.fan_out = fan_out
+        self.R_size = R_size
+        
+        self.leak_rate = leak_rate
+
+        self.W_in = nn.ParameterList(torch.empty(n_head, R_size, fan_out))
+        nn.init.xavier_uniform_(self.W_in)
+
+        self.W_out = nn.ParameterList()
+
+        W_res_stack = []
+        for _ in range(n_head):
+            W = torch.randn(R_size, R_size)
+            mask = (torch.rand_like(W) < sparsity).float()
+            W = W * mask
+            
+            eigs = torch.linalg.eigvals(W)
+            radius = torch.max(eigs.abs()).item()
+            W = (W / (radius + 1e-9)) * spectral_radius 
+            W_res_stack.append(W)
+
+        self.register_buffer("W_res", torch.stack(W_res_stack))
+
+    """
+    again, x = (batch_size, fan_in)
+    """
+    def forward(self, x, act_function = torch.tanh):
+        size = x.shape[0]
+        state = torch.zeros(size, self.R_size)
+        
+        # F.linear(state, self.W_res) = state @ weight.T = (size, R_size) x (n_head, R_size, R_size) x (size, R_size) 
+        preactivation = F.linear(state, self.W_res) + F.linear(x, self.W_in)
+        new_state = act_function(preactivation)
+        new_state = (1 - self.leak_rate)*state + self.leak_rate * new_state
+        self.W_out.append(new_state)
