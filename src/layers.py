@@ -23,9 +23,9 @@ class multi_attention(nn.Module):
         self.n_feature = n_feature # as in number of outputs.
         self.mode = mode
 
-        self.WQ = nn.Parameter(torch.Tensor(self.n_head, n_feature, 1), requires_grad=True)
-        self.WK = nn.Parameter(torch.Tensor(self.n_head,n_feature,1), requires_grad=True)
-        self.WV = nn.Parameter(torch.Tensor(self.n_head,n_feature,1), requires_grad=True)
+        self.WQ = nn.Parameter(torch.Tensor(self.n_head, n_feature), requires_grad=True)
+        self.WK = nn.Parameter(torch.Tensor(self.n_head,n_feature), requires_grad=True)
+        self.WV = nn.Parameter(torch.Tensor(self.n_head,n_feature), requires_grad=True)
 
         # xavier_normal_ helps for stability among layers: makes sure that data behavior doesn't explode. It "chooses" initial random numbers
         nn.init.xavier_normal_(self.WQ, gain=1)
@@ -51,12 +51,16 @@ class multi_attention(nn.Module):
     """
     def attention(self, x):
 
+        # dim = n_head, n_feature
         WQ = self.WQ
         WK = self.WK
         WV = self.WV 
         n_gene = self.n_gene
 
-        # dim = (batch_size, 1, n_gene, 1)
+        # we will assume n_feature = n_gene for now
+        """
+        ask Davi about diff case: when n_feature is different from n_gene
+        """
         x = x.unsqueeze(1).unsqueeze(-1)
         # dim = (1, n_head, n_gene, 1)
         WQ = WQ.unsqueeze(0) 
@@ -64,10 +68,9 @@ class multi_attention(nn.Module):
         WV = WV.unsqueeze(0) 
 
         # dim = (batch_size, n_head, n_gene, 1)
-        Q = WQ * x 
-        Q = torch.einsum('ijk,ij', WQ, x)
-        K = WK * x
-        V = WV * x
+        Q = torch.einsum('ij,kj', x, WQ)
+        K = torch.einsum('ij,kj', x, WK)
+        V = torch.einsum('ij,kj', x, WV)
 
         Q = Q.expand(-1, -1, -1, n_gene) # copied into additional dimension
         K = K.expand(-1, -1, -1, n_gene).permute(0, 1, 3, 2) # same, but last dimensions are permuted: transposition
