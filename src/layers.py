@@ -61,39 +61,24 @@ class multi_attention(nn.Module):
         """
         ask Davi about diff case: when n_feature is different from n_gene
         """
-        x = x.unsqueeze(1).unsqueeze(-1)
-        # dim = (1, n_head, n_gene, 1)
-        WQ = WQ.unsqueeze(0) 
-        WK = WK.unsqueeze(0)
-        WV = WV.unsqueeze(0) 
-
-        # dim = (batch_size, n_head, n_gene, 1)
-        Q = torch.einsum('ij,kj', x, WQ)
-        K = torch.einsum('ij,kj', x, WK)
-        V = torch.einsum('ij,kj', x, WV)
-
-        Q = Q.expand(-1, -1, -1, n_gene) # copied into additional dimension
-        K = K.expand(-1, -1, -1, n_gene).permute(0, 1, 3, 2) # same, but last dimensions are permuted: transposition
+        Q = torch.einsum('bg,hg->bhg', x, WQ)
+        K = torch.einsum('bg,hg->bhg', x, WK)
+        V = torch.einsum('bg,hg->bhg', x, WV)
+        # results in dim = (batch_size, n_head, n_gene)
 
         # (QK)_bhgg' = Q_bhg K_bhg' = (WQ_hg * x_bg) * (WQ_hg' * x_bg')  
-        # dim = (batch_size, n_head, n_gene, n_gene)
-        QK = Q * K 
-        z = torch.softmax(QK, dim=-1) # softmax over last dimensions, thats it over g' -> the Key genes
-
-        def mask(x):
-            mask = 1 - torch.eye(n_gene, device = device)
-            mask = mask.unsqueeze(0).unsqueeze(0)
-            return x*mask
+        QK = torch.einsum('bhg, bhi -> bhgi', Q, K) 
+        # results in dim = (batch_size, n_head, n_gene, n_gene)
+        a = torch.softmax(QK, dim=-1) # softmax over last dimensions, thats it over g' -> the Key genes
+        mask = 1 - torch.eye(n_gene, device = device)
         
-        # z @ V = (batch_size, n_head, n_gene, n_gene)@(batch_size, n_head, n_gene, 1) = (batch_size, n_head, n_gene, 1)
-        # it sums like a_bhg = z_bhgg' V_bhg'
-        z = mask(z)
-        attention = z @ V
+        z = torch.einsum('bhgi, bhi -> bhg', a*mask , V)
+        # dim = (batch_size, n_head, n_gene)
 
         if self.mode == 1:
             NotImplementedError("need to check this")
 
-        return attention.squeeze(-1) # output = (batch_size, n_head, n_gene)
+        return z # output = (batch_size, n_head, n_gene)
     
 
     """ 
@@ -103,13 +88,11 @@ class multi_attention(nn.Module):
     """
     def forward(self, x):
         if save_memory:
-            a = cp(self.attention, x)
+            z = cp(self.attention, x)
         else:
-            a = self.attention(x)
-
-        a_ = a.permute(0, 2, 1)
-        output = a_ @ self.W_0 # colapses n_head results: dim = (batch_size, n_gene)
-        return output
+            z = self.attention(x)
+        out = torch.einsum('bhg, hg -> bg' , z, self.W_0) # colapses n_head results: dim = (batch_size, n_gene)
+        return out
     
 
 """

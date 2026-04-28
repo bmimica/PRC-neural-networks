@@ -42,6 +42,13 @@ def _(X_test):
     return
 
 
+@app.cell
+def _():
+    tensor = torch.eye(4)
+    tensor.unsqueeze(0).unsqueeze(0).shape
+    return
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
