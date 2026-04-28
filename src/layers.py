@@ -91,7 +91,7 @@ class multi_attention(nn.Module):
             z = cp(self.attention, x)
         else:
             z = self.attention(x)
-        out = torch.einsum('bhg, hg -> bg' , z, self.W_0) # colapses n_head results: dim = (batch_size, n_gene)
+        out = torch.einsum('bhg, h -> bg' , z, self.W_0) # colapses n_head results: dim = (batch_size, n_gene)
         return out
     
 

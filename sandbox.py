@@ -78,7 +78,7 @@ def _():
         nn.LogSoftmax(dim = 1)
     ]
 
-    label = 'test'
+    label = 'test_2'
     model  = Sequential(layers, label)
     model.save()
     return label, model
