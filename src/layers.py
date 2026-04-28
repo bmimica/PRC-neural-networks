@@ -137,10 +137,11 @@ class echo_state(nn.Module):
         
         self.leak_rate = leak_rate
 
-        self.W_in = nn.ParameterList(torch.empty(n_head, R_size, fan_out))
+        self.W_in = nn.Parameter(torch.empty(n_head, R_size, fan_in), requires_grad=False)
         nn.init.xavier_uniform_(self.W_in)
 
-        self.W_out = nn.ParameterList()
+        self.W_out = nn.Parameter(torch.empty(n_head, fan_out, R_size))
+        nn.init.xavier_uniform_(self.W_out)
 
         W_res_stack = []
         for _ in range(n_head):
@@ -153,17 +154,24 @@ class echo_state(nn.Module):
             W = (W / (radius + 1e-9)) * spectral_radius 
             W_res_stack.append(W)
 
-        self.register_buffer("W_res", torch.stack(W_res_stack))
+        self.register_buffer("W_res", torch.stack(W_res_stack)) # dim = (n_head, R_size, R_size)
+        self.collected_states = []
 
     """
     again, x = (batch_size, fan_in)
     """
     def forward(self, x, act_function = torch.tanh):
-        size = x.shape[0]
-        state = torch.zeros(size, self.R_size)
-        
-        # F.linear(state, self.W_res) = state @ weight.T = (size, R_size) x (n_head, R_size, R_size) x (size, R_size) 
-        preactivation = F.linear(state, self.W_res) + F.linear(x, self.W_in)
+        W_res = self.W_res
+        batch_size = self.batch_size
+        state = torch.zeros(batch_size, self.n_head, self.R_size)
+
+        # state (b, h, R_in) * W_res (h, R_out, R_in) -> (b, h, R_out)
+        # x (b, f) * W_in (h, R, f) -> (b, h, R)
+        preactivation = torch.einsum('bhi, hoi -> bho', state, W_res) + torch.einsum('bi, hRi -> bhR', x, self.W_in)
         new_state = act_function(preactivation)
         new_state = (1 - self.leak_rate)*state + self.leak_rate * new_state
-        self.W_out.append(new_state)
+
+        y = torch.einsum('bhr, hgr -> bhg', new_state, self.W_out)
+
+        return y.mean(dim=1) # output = (batch_size, n_genes)
+            
