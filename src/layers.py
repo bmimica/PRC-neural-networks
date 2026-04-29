@@ -122,7 +122,6 @@ class AttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-
         return x + self.norm(self.dropout(self.attn(x))) # output dim = x dim
     
 
@@ -163,7 +162,7 @@ class echo_state(nn.Module):
     """
     def forward(self, x, act_function = torch.tanh):
         W_res = self.W_res
-        batch_size = self.batch_size
+        batch_size = x.shape[0]
         state = torch.zeros(batch_size, self.n_head, self.R_size)
 
         # state (b, h, R_in) * W_res (h, R_out, R_in) -> (b, h, R_out)
@@ -176,8 +175,9 @@ class echo_state(nn.Module):
         ''' ask davi : in attention we use a learning collapse, here just a mean
         '''
         norm = nn.BatchNorm1d(self.fan_out)
-        out = norm(y)
+        out = norm(y.mean(dim=1))
 
         do = nn.Dropout(self.dropout)
         out = do(out)
-        return out.mean(dim=1) # output = (batch_size, n_genes)
+        return out # output = (batch_size, n_genes)
+    

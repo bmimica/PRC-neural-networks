@@ -9,8 +9,8 @@ with app.setup:
     import torch
     import torch.nn as nn
 
-    from src.layers import multi_attention, AttentionBlock
-    from src.architecture import Sequential
+    from src.layers import multi_attention, AttentionBlock, echo_state
+    from src.architecture import Sequential, LeakyResidualConnector
     from src.train import load_data, main
 
     import pandas as pd
@@ -19,6 +19,8 @@ with app.setup:
 
     import subprocess
     import os
+
+    import sys
 
 
 @app.cell(hide_code=True)
@@ -81,7 +83,7 @@ def _():
     label = 'test_2'
     model  = Sequential(layers, label)
     model.save()
-    return label, model
+    return batch_size, label, model, n_class, n_head
 
 
 @app.cell
@@ -94,15 +96,60 @@ def _(X_val, model):
     return
 
 
-@app.cell
+@app.cell(disabled=True)
 def _(label, model):
-    import sys
-
     # We manually set the "command line arguments" for this cell only
     sys.argv = [
         "train.py", # the train script to be run 
         "--model_path", model.path, 
         "--run_name", f"{label}", # label of the results 
+        "--epochs", "10", 
+        "--batch_size", "16", 
+        "--lr", "0.0001"
+    ]
+
+    main()
+    return
+
+
+@app.cell
+def _(batch_size, n_class, n_head):
+    # batch_size = 16
+    # n_head = 5
+    fan_in =  1708
+    fan_out = 1708
+    R_size  = 256
+    # n_class = 34
+    # mode = 0
+
+    #architecture
+    layers_2 = [
+        echo_state(batch_size, n_head, fan_in, fan_out, R_size),
+        echo_state(batch_size, n_head, fan_in, fan_out, R_size),
+        echo_state(batch_size, n_head, fan_in, fan_out, R_size),
+        nn.ReLU(),
+        nn.Linear(fan_in, n_class),
+        nn.LogSoftmax(dim = 1)
+    ]
+
+    label_2 = 'test_1_esn'
+    model_2  = Sequential(layers_2, label_2)
+    model_2.save()
+    return label_2, model_2
+
+
+@app.cell
+def _(X_test, model_2):
+    model_2(X_test)
+    return
+
+
+@app.cell
+def _(label_2, model_2):
+    sys.argv = [
+        "train.py", # the train script to be run 
+        "--model_path", model_2.path, 
+        "--run_name", f"{label_2}", # label of the results 
         "--epochs", "10", 
         "--batch_size", "16", 
         "--lr", "0.0001"
