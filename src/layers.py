@@ -127,7 +127,7 @@ class AttentionBlock(nn.Module):
     
 
 class echo_state(nn.Module):
-    def __init__(self, batch_size, n_head, fan_in, fan_out, R_size, sparsity = 0.95, spectral_radius = 0.9, leak_rate = 0.3):
+    def __init__(self, batch_size, n_head, fan_in, fan_out, R_size, sparsity = 0.95, spectral_radius = 0.9, leak_rate = 0.3, dropout = 0.3):
         super().__init__()
         self.batch_size = batch_size
         self.n_head = n_head
@@ -136,6 +136,7 @@ class echo_state(nn.Module):
         self.R_size = R_size
         
         self.leak_rate = leak_rate
+        self.dropout = dropout
 
         self.W_in = nn.Parameter(torch.empty(n_head, R_size, fan_in), requires_grad=False)
         nn.init.xavier_uniform_(self.W_in)
@@ -172,6 +173,11 @@ class echo_state(nn.Module):
         new_state = (1 - self.leak_rate)*state + self.leak_rate * new_state
 
         y = torch.einsum('bhr, hgr -> bhg', new_state, self.W_out)
+        ''' ask davi : in attention we use a learning collapse, here just a mean
+        '''
+        norm = nn.BatchNorm1d(self.fan_out)
+        out = norm(y)
 
-        return y.mean(dim=1) # output = (batch_size, n_genes)
-            
+        do = nn.Dropout(self.dropout)
+        out = do(out)
+        return out.mean(dim=1) # output = (batch_size, n_genes)

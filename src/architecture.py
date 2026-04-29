@@ -34,3 +34,18 @@ class Sequential(nn.Module):
         torch.save(self, model_file)
         self.path = model_file
       
+
+class LeakyResidualConnector(nn.Module):
+    def __init__(self, size, dropout_rate):
+        super().__init__()
+        self.norm = nn.LayerNorm(size)
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, x, *outputs):
+        summed_outputs = 0
+        for out in outputs:
+            # This forces 'out' into the exact shape of 'x'
+            # as long as they have the same number of total elements
+            summed_outputs += self.norm(self.dropout(out.view_as(x)))
+            
+        return x + summed_outputs
