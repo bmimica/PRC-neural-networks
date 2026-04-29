@@ -22,6 +22,15 @@ with app.setup:
 
     import sys
 
+    import pandas as pd
+    from pathlib import Path
+
+    import matplotlib.pyplot as plt
+
+    from sklearn.metrics import ConfusionMatrixDisplay
+
+    import numpy as np
+
 
 @app.cell(hide_code=True)
 def _():
@@ -125,14 +134,12 @@ def _(batch_size, n_class, n_head):
     #architecture
     layers_2 = [
         echo_state(batch_size, n_head, fan_in, fan_out, R_size),
-        echo_state(batch_size, n_head, fan_in, fan_out, R_size),
-        echo_state(batch_size, n_head, fan_in, fan_out, R_size),
         nn.ReLU(),
         nn.Linear(fan_in, n_class),
         nn.LogSoftmax(dim = 1)
     ]
 
-    label_2 = 'test_1_esn'
+    label_2 = 'test_2_esn'
     model_2  = Sequential(layers_2, label_2)
     model_2.save()
     return label_2, model_2
@@ -150,12 +157,82 @@ def _(label_2, model_2):
         "train.py", # the train script to be run 
         "--model_path", model_2.path, 
         "--run_name", f"{label_2}", # label of the results 
-        "--epochs", "10", 
+        "--epochs", "25", 
         "--batch_size", "16", 
         "--lr", "0.0001"
     ]
 
     main()
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    # Data Analysis
+    """)
+    return
+
+
+@app.cell
+def _():
+    results_dir =  Path(r"F:\benja\project_TGEM\reproduccion resultados\results")
+
+    for file_path in results_dir.iterdir():
+            if file_path.suffix == ".pkl":
+                print(file_path.name)
+    return (results_dir,)
+
+
+@app.cell
+def _(results_dir):
+    results_esn = pd.read_pickle(results_dir / 'res_test_2_esn.pkl')
+    results_attention = pd.read_pickle(results_dir / 'res_test_2.pkl')
+
+
+    results = [results_esn, results_attention]
+    results_esn.keys()
+    return (results,)
+
+
+@app.cell
+def _(results):
+    labels = ['esn', 'attention']
+    colors = ['red', 'blue']
+    key =  'f1'
+
+    for i, result in enumerate(results):
+        plt.plot(result[key], label = labels[i], color = colors[i])
+
+    plt.title(key) 
+    plt.legend()
+    plt.show()
+    return
+
+
+@app.cell
+def _(results):
+    def _():
+        epoch = 10
+
+        for i, result in enumerate(results):
+            cm = np.array(result['confusion_matrix'][epoch-1])
+            fig, ax = plt.subplots(figsize=(10, 10))
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        
+            disp.plot(ax=ax, cmap='Blues', values_format='d', colorbar=True)
+        
+            plt.xticks(rotation=90)
+            plt.title(f"Confusion Matrix - Epoch {epoch}")
+        return plt.show()
+
+
+    _()
     return
 
 

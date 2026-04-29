@@ -116,7 +116,7 @@ def main():
         batch_pbar = tqdm(enumerate(range(0, X_train.shape[0], batch_size)), 
                         total=X_train.shape[0]//batch_size, 
                         desc=f"Epoch {epoch+1}", 
-                        position = 1, leave = False)
+                        position = 1)
         for batch_idx, i in batch_pbar:
             indices = permutation[i: i+batch_size]
             batch_x, batch_y = X_train[indices].to(device), Y_train[indices].to(device)

@@ -32,14 +32,9 @@ class multi_attention(nn.Module):
         nn.init.xavier_normal_(self.WK, gain=1)
         nn.init.xavier_normal_(self.WV)
 
-        """
-        ask Davi about this W0 parameter
-        """
         self.W_0=nn.Parameter(torch.Tensor(self.n_head*[0.001]), requires_grad=True)
 
-    """
-    ask about this to Davi: why not use dot product as in the paper? is eq 2
-    """
+   
     def QK_diff(self, Q_seq, K_seq):
         QK_dif = -1 * torch.pow((Q_seq - K_seq),2)
         return torch.nn.Softmax(dim=2)(QK_dif)
