@@ -41,9 +41,10 @@ def _():
 
 
 @app.cell
-def _():
+def _(load_gene_data):
     rand_seed_0 = 42
-    X_train, Y_train, X_val, Y_val, X_test, Y_test = load_data(rand_seed = rand_seed_0)
+
+    X_train, Y_train, X_val, Y_val, X_test, Y_test = load_gene_data(rand_seed = rand_seed_0)
     return X_test, X_val
 
 
@@ -224,9 +225,9 @@ def _(results):
             cm = np.array(result['confusion_matrix'][epoch-1])
             fig, ax = plt.subplots(figsize=(10, 10))
             disp = ConfusionMatrixDisplay(confusion_matrix=cm)
-        
+
             disp.plot(ax=ax, cmap='Blues', values_format='d', colorbar=True)
-        
+
             plt.xticks(rotation=90)
             plt.title(f"Confusion Matrix - Epoch {epoch}")
         return plt.show()

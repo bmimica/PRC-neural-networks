@@ -121,14 +121,15 @@ class AttentionBlock(nn.Module):
     
 
 class echo_state(nn.Module):
-    def __init__(self, batch_size, n_head, fan_in, fan_out, R_size, sparsity = 0.95, spectral_radius = 0.9, leak_rate = 0.3, dropout = 0.3):
+    def __init__(self, batch_size, n_head, fan_in, fan_out, R_size, echo = False, sparsity = 0.95, spectral_radius = 0.9, leak_rate = 0.3, dropout = 0.3):
         super().__init__()
         self.batch_size = batch_size
         self.n_head = n_head
         self.fan_in = fan_in
         self.fan_out = fan_out
         self.R_size = R_size
-        
+        self.echo = echo
+
         self.leak_rate = leak_rate
         self.dropout = dropout
 
@@ -158,21 +159,36 @@ class echo_state(nn.Module):
     def forward(self, x, act_function = torch.tanh):
         W_res = self.W_res
         batch_size = x.shape[0]
-        state = torch.zeros(batch_size, self.n_head, self.R_size)
 
-        # state (b, h, R_in) * W_res (h, R_out, R_in) -> (b, h, R_out)
-        # x (b, f) * W_in (h, R, f) -> (b, h, R)
-        preactivation = torch.einsum('bhi, hoi -> bho', state, W_res) + torch.einsum('bi, hRi -> bhR', x, self.W_in)
-        new_state = act_function(preactivation)
-        new_state = (1 - self.leak_rate)*state + self.leak_rate * new_state
+        if self.echo:
+            # Sequential mode: treat batch as sequence
+            all_states = []
+            current_state = torch.zeros(self.n_head, self.R_size, device=x.device)
+            
+            for i in range(batch_size):
+                xi = x[i].unsqueeze(0)
+                # preactivation: (1, n_head, R_size)
+                preactivation = torch.einsum('bhi, hoi -> bho', current_state.unsqueeze(0), W_res) + \
+                                torch.einsum('bi, hRi -> bhR', xi, self.W_in)
+                
+                new_state = act_function(preactivation).squeeze(0) # (n_head, R_size)
+                current_state = (1 - self.leak_rate) * current_state + self.leak_rate * new_state
+                all_states.append(current_state.clone())
+            
+            states = torch.stack(all_states) # (batch_size, n_head, R_size)
+            y = torch.einsum('bhr, hgr -> bhg', states, self.W_out)
+        else:
+            # Independent mode (standard ESN behavior per-sample reset)
+            state = torch.zeros(batch_size, self.n_head, self.R_size, device=x.device)
+            preactivation = torch.einsum('bhi, hoi -> bho', state, W_res) + torch.einsum('bi, hRi -> bhR', x, self.W_in)
+            new_state = act_function(preactivation)
+            new_state = (1 - self.leak_rate)*state + self.leak_rate * new_state
+            y = torch.einsum('bhr, hgr -> bhg', new_state, self.W_out)
 
-        y = torch.einsum('bhr, hgr -> bhg', new_state, self.W_out)
-        ''' ask davi : in attention we use a learning collapse, here just a mean
-        '''
-        norm = nn.BatchNorm1d(self.fan_out)
+        norm = nn.BatchNorm1d(self.fan_out).to(x.device)
         out = norm(y.mean(dim=1))
 
         do = nn.Dropout(self.dropout)
         out = do(out)
-        return out # output = (batch_size, n_genes)
+        return out
     
