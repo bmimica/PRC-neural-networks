@@ -136,8 +136,13 @@ class echo_state(nn.Module):
         self.W_in = nn.Parameter(torch.empty(n_head, R_size, fan_in), requires_grad=False)
         nn.init.xavier_uniform_(self.W_in)
 
-        self.W_out = nn.Parameter(torch.empty(n_head, fan_out, R_size))
-        nn.init.xavier_uniform_(self.W_out)
+        if echo: 
+            self.W_out = nn.Parameter(torch.empty(n_head, fan_out, R_size + fan_in + 1))
+            nn.init.xavier_uniform_(self.W_out)
+
+        else:
+            self.W_out = nn.Parameter(torch.empty(n_head, fan_out, R_size))
+            nn.init.xavier_uniform_(self.W_out)
 
         W_res_stack = []
         for _ in range(n_head):
@@ -166,20 +171,29 @@ class echo_state(nn.Module):
             current_state = torch.zeros(self.n_head, self.R_size, device=x.device)
             
             for i in range(batch_size):
-                xi = x[i].unsqueeze(0)
+                xi = x[i] # the i-th element in the batch
                 # preactivation: (1, n_head, R_size)
-                preactivation = torch.einsum('bhi, hoi -> bho', current_state.unsqueeze(0), W_res) + \
-                                torch.einsum('bi, hRi -> bhR', xi, self.W_in)
+                preactivation = torch.einsum('hi, hoi -> ho', current_state.unsqueeze(0), W_res) + \
+                                torch.einsum('i, hRi -> hR', xi, self.W_in)
                 
                 new_state = act_function(preactivation).squeeze(0) # (n_head, R_size)
                 current_state = (1 - self.leak_rate) * current_state + self.leak_rate * new_state
                 all_states.append(current_state.clone())
             
-            states = torch.stack(all_states) # (batch_size, n_head, R_size)
-            y = torch.einsum('bhr, hgr -> bhg', states, self.W_out)
+            x_expanded = x.unsqueeze(1) 
+            x_expanded = x_expanded.expand(-1, self.n_head, -1) # expand across the head count -> (batch_size, n_head, fan_in)
+            bias = torch.ones(batch_size, 1, device=x.device)
+            bias_expanded = bias.unsqueeze(1).expand(-1, self.n_head, -1) # add a bias + 1
+            states_stacked = torch.stack(all_states) # stack all reservoir states
+
+            extended_state = torch.cat([states_stacked, x_expanded, bias_expanded], dim=2)
+            y = torch.einsum('bhr, hgr -> bhg', extended_state, self.W_out)
         else:
             # Independent mode (standard ESN behavior per-sample reset)
             state = torch.zeros(batch_size, self.n_head, self.R_size, device=x.device)
+
+            # state (b, h, R_in) * W_res (h, R_out, R_in) -> (b, h, R_out)
+            # x (b, f) * W_in (h, R, f) -> (b, h, R)
             preactivation = torch.einsum('bhi, hoi -> bho', state, W_res) + torch.einsum('bi, hRi -> bhR', x, self.W_in)
             new_state = act_function(preactivation)
             new_state = (1 - self.leak_rate)*state + self.leak_rate * new_state
