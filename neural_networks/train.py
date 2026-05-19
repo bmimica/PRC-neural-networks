@@ -24,7 +24,7 @@ else:
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def load_data(rand_seed, data_test_size = 0.2, data_eval_size = 0.1):
+def load_gene_data(rand_seed, data_test_size = 0.2, data_eval_size = 0.1):
     with open('pathway_data.pckl', 'rb') as f:
         y, data_df, pathway_gene, pathway, cancer_name = pl.load(f)
     gene_list = data_df.columns.tolist()
@@ -67,7 +67,8 @@ def train(model, batch_size = 16, lr=0.001, epochs=50, label="exp_1"):
         "--lr", str(lr),
         "--epochs", str(epochs),
         "--batch_size", str(batch_size),
-        "--run_name", label
+        "--run_name", label,
+        "--data", "genes"
     ]
 
     # run in terminal
@@ -82,12 +83,15 @@ def main():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--run_name", type=str, required = True) # label of a certain training process
+    parser.add_argument("--data", type=str, required = True)
     args = parser.parse_args()
 
     results_dir = os.path.join(os.getcwd(), "results")
     if not os.path.exists(results_dir):
           os.makedirs(results_dir)
 
+    data_loaders ={'genes' : load_gene_data}
+    load_data = data_loaders[args.data]
     X_train, Y_train, X_val, Y_val, X_test, Y_test = load_data(args.rand_seed)
     model = torch.load(args.model_path, weights_only = False).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)

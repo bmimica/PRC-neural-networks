@@ -29,6 +29,9 @@ class Sequential(nn.Module):
         models_dir = os.path.join(os.getcwd(), "models")
         if not os.path.exists(models_dir):
             os.makedirs(models_dir)
+
+        if os.path.exists(model_file):
+            raise FileExistsError(f"Cannot save: model '{self.label}' already exists at {model_file}.")
           
         model_file = os.path.join(models_dir, f"model_{self.label}.pth")
         torch.save(self, model_file)

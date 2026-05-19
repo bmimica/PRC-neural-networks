@@ -172,11 +172,10 @@ class echo_state(nn.Module):
             
             for i in range(batch_size):
                 xi = x[i] # the i-th element in the batch
-                # preactivation: (1, n_head, R_size)
-                preactivation = torch.einsum('hi, hoi -> ho', current_state.unsqueeze(0), W_res) + \
+                preactivation = torch.einsum('hi, hRi -> hR', current_state, W_res) + \
                                 torch.einsum('i, hRi -> hR', xi, self.W_in)
                 
-                new_state = act_function(preactivation).squeeze(0) # (n_head, R_size)
+                new_state = act_function(preactivation) # (n_head, R_size)
                 current_state = (1 - self.leak_rate) * current_state + self.leak_rate * new_state
                 all_states.append(current_state.clone())
             
@@ -204,5 +203,5 @@ class echo_state(nn.Module):
 
         do = nn.Dropout(self.dropout)
         out = do(out)
-        return out
+        return out # dim = fa
     
